@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CronosForensic v1.7.2 - Central de Perícias</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; color: #0f172a; }
+        
+        .canvas-wrapper { position: relative; background: #cbd5e1; border-radius: 16px; overflow: hidden; display: flex; justify-content: center; align-items: center; box-shadow: inset 0 2px 10px rgba(0,0,0,0.1); }
+        canvas { max-width: 100%; height: auto; display: block; touch-action: none; cursor: crosshair; }
+        
+        .vertical-ruler { width: 45px; background: #f8fafc; border-left: 2px solid #cbd5e1; display: flex; flex-direction: column; justify-content: space-between; padding: 10px 0; font-size: 8px; font-weight: 800; color: #94a3b8; }
+        
+        .legrand-slider {
+            width: 100%; height: 35px;
+            background: linear-gradient(to right, #dc2626, #4f46e5, #16a34a, #eab308, #fefce8);
+            border-radius: 20px; cursor: pointer; position: relative; margin-top: 10px;
+            border: 2px solid white; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+        }
+
+        #sliderMarker {
+            position: absolute; top: -5px; width: 4px; height: 45px;
+            background: #0f172a; border-radius: 2px; pointer-events: none;
+            display: none; transition: left 0.2s ease;
+        }
+
+        .humanoid-marker {
+            position: absolute; width: 18px; height: 18px; background: #ef4444;
+            border: 2px solid white; border-radius: 50%; transform: translate(-50%, -50%);
+            display: flex; align-items: center; justify-content: center; color: white;
+            font-size: 8px; font-weight: 900; cursor: pointer; z-index: 10;
+        }
+        .humanoid-marker.active { background: #2563eb; transform: translate(-50%, -50%) scale(1.2); ring: 4px solid rgba(37,99,235,0.2); }
+
+        .lego-segment { fill: #e2e8f0; stroke: #94a3b8; stroke-width: 0.8; transition: all 0.2s; }
+        .lego-segment.selected { fill: #2563eb !important; stroke: #1e3a8a; }
+        .lego-segment.has-lesion { fill: #ef4444 !important; stroke: #991b1b; }
+        .lego-segment:hover { fill: #cbd5e1; cursor: pointer; }
+        
+        .form-label { font-size: 9px; font-weight: 900; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; display: block; }
+        .form-input { width: 100%; padding: 8px 12px; font-size: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; outline: none; transition: border 0.2s; }
+        .form-input:focus { border-color: #3b82f6; background: white; }
+
+        /* Modal Styles */
+        #customModal { display: none; }
+        
+        @media print { .no-print { display: none !important; } }
+    </style>
+</head>
+<body class="p-2 md:p-4">
+
+    <!-- Custom Modal for Confirmations -->
+    <div id="customModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm no-print">
+        <div class="bg-white p-8 rounded-[2rem] shadow-2xl max-w-sm w-full mx-4 border border-slate-200">
+            <h3 id="modalTitle" class="text-xl font-black text-slate-900 mb-2">Confirmar Ação</h3>
+            <p id="modalText" class="text-sm text-slate-500 mb-6 leading-relaxed">Você tem certeza que deseja realizar esta operação?</p>
+            <div class="flex gap-3">
+                <button onclick="closeModal()" class="flex-1 py-3 rounded-xl font-bold text-slate-400 bg-slate-100 hover:bg-slate-200 transition">Cancelar</button>
+                <button id="modalConfirmBtn" class="flex-1 py-3 rounded-xl font-black text-white bg-red-600 hover:bg-red-700 shadow-lg shadow-red-200 transition">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-[1750px] mx-auto bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200">
+        <!-- Header -->
+        <header class="bg-slate-900 text-white p-6 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-5">
+                <div class="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg">CP</div>
+                <div>
+                    <h1 class="text-2xl font-black tracking-tighter">CronosForensic <span class="text-blue-400">v1.7.2</span></h1>
+                    <p class="text-slate-400 text-[10px] uppercase font-bold tracking-[0.3em]">Central de Perícias - Medicina Legal</p>
+                </div>
+            </div>
+            <div class="flex flex-wrap justify-center gap-3 no-print">
+                <button onclick="copyAllNotes()" class="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition border border-slate-700">COPIAR PRONTUÁRIO</button>
+                <button onclick="generateLatex()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow-lg">RELATÓRIO LATEX</button>
+                <button onclick="triggerClearAll()" class="bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white px-4 py-2 rounded-xl text-xs font-bold transition">LIMPAR EXAME</button>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 xl:grid-cols-12">
+            
+            <!-- Coluna Esquerda: Mapa e Segmentos -->
+            <aside class="xl:col-span-2 border-r border-slate-100 p-4 space-y-6 no-print bg-slate-50/30">
+                <div class="space-y-4">
+                    <div class="flex justify-between items-center border-b pb-2">
+                        <h2 class="text-[10px] font-black text-slate-400 uppercase tracking-widest">1. Localização</h2>
+                        <div class="flex gap-1">
+                            <button onclick="switchView('anterior')" id="btnViewAnt" class="px-2 py-1 text-[8px] font-black rounded bg-blue-600 text-white">ANT</button>
+                            <button onclick="switchView('posterior')" id="btnViewPost" class="px-2 py-1 text-[8px] font-black rounded bg-slate-200 text-slate-600">POST</button>
+                        </div>
+                    </div>
+                    
+                    <div class="relative bg-white rounded-3xl border border-slate-200 shadow-sm p-4 flex flex-col items-center" id="mapContainer">
+                        <!-- SVG Anterior -->
+                        <svg id="legoManAnt" viewBox="0 0 100 210" class="h-[400px] w-auto">
+                            <rect class="lego-segment" data-seg="Craniana Anterior" x="42" y="5" width="16" height="18" rx="4" />
+                            <rect class="lego-segment" data-seg="Cervical Anterior" x="45" y="23" width="10" height="4" rx="1" />
+                            <rect class="lego-segment" data-seg="Torácica Superior Anterior" x="30" y="27" width="40" height="25" rx="1" />
+                            <rect class="lego-segment" data-seg="Abdominal Anterior" x="30" y="53" width="40" height="25" rx="1" />
+                            <rect class="lego-segment" data-seg="Braço Direito Anterior" x="16" y="27" width="12" height="18" rx="2" />
+                            <rect class="lego-segment" data-seg="Cotovelo Direito Anterior" x="16" y="45" width="12" height="6" rx="1" />
+                            <rect class="lego-segment" data-seg="Antebraço Direito Anterior" x="16" y="51" width="12" height="18" rx="2" />
+                            <rect class="lego-segment" data-seg="Mão Direita Anterior" x="16" y="70" width="12" height="10" rx="2" />
+                            <rect class="lego-segment" data-seg="Braço Esquerdo Anterior" x="72" y="27" width="12" height="18" rx="2" />
+                            <rect class="lego-segment" data-seg="Cotovelo Esquerdo Anterior" x="72" y="45" width="12" height="6" rx="1" />
+                            <rect class="lego-segment" data-seg="Antebraço Esquerdo Anterior" x="72" y="51" width="12" height="18" rx="2" />
+                            <rect class="lego-segment" data-seg="Mão Esquerda Anterior" x="72" y="70" width="12" height="10" rx="2" />
+                            <rect class="lego-segment" data-seg="Coxa Direita Anterior" x="30" y="80" width="18" height="30" rx="1" />
+                            <rect class="lego-segment" data-seg="Joelho Direito Anterior" x="30" y="110" width="18" height="8" rx="1" />
+                            <rect class="lego-segment" data-seg="Perna Direita Anterior" x="30" y="118" width="18" height="30" rx="1" />
+                            <rect class="lego-segment" data-seg="Pé Direito Anterior" x="25" y="150" width="23" height="10" rx="2" />
+                            <rect class="lego-segment" data-seg="Coxa Esquerda Anterior" x="52" y="80" width="18" height="30" rx="1" />
+                            <rect class="lego-segment" data-seg="Joelho Esquerda Anterior" x="52" y="110" width="18" height="8" rx="1" />
+                            <rect class="lego-segment" data-seg="Perna Esquerda Anterior" x="52" y="118" width="18" height="30" rx="1" />
+                            <rect class="lego-segment" data-seg="Pé Esquerdo Anterior" x="52" y="150" width="23" height="10" rx="2" />
+                        </svg>
+
+                        <!-- SVG Posterior -->
+                        <svg id="legoManPost" viewBox="0 0 100 210" class="h-[400px] w-auto hidden">
+                            <rect class="lego-segment" data-seg="Craniana Posterior" x="42" y="5" width="16" height="18" rx="4" />
+                            <rect class="lego-segment" data-seg="Cervical Posterior" x="45" y="23" width="10" height="4" rx="1" />
+                            <rect class="lego-segment" data-seg="Dorsal Superior" x="30" y="27" width="40" height="25" rx="1" />
+                            <rect class="lego-segment" data-seg="Lombar" x="30" y="53" width="40" height="25" rx="1" />
+                            <rect class="lego-segment" data-seg="Glútea Direita" x="30" y="78" width="20" height="20" rx="2" />
+                            <rect class="lego-segment" data-seg="Glútea Esquerda" x="50" y="78" width="20" height="20" rx="2" />
+                            <rect class="lego-segment" data-seg="Braço Direito Posterior" x="16" y="27" width="12" height="18" rx="2" />
+                            <rect class="lego-segment" data-seg="Cotovelo Direito Posterior" x="16" y="45" width="12" height="6" rx="1" />
+                            <rect class="lego-segment" data-seg="Antebraço Direito Posterior" x="16" y="51" width="12" height="18" rx="2" />
+                            <rect class="lego-segment" data-seg="Mão Direita Posterior" x="16" y="70" width="12" height="10" rx="2" />
+                            <rect class="lego-segment" data-seg="Braço Esquerdo Posterior" x="72" y="27" width="12" height="18" rx="2" />
+                            <rect class="lego-segment" data-seg="Cotovelo Esquerdo Posterior" x="72" y="45" width="12" height="6" rx="1" />
+                            <rect class="lego-segment" data-seg="Antebraço Esquerdo Posterior" x="72" y="51" width="12" height="18" rx="2" />
+                            <rect class="lego-segment" data-seg="Mão Esquerda Posterior" x="72" y="70" width="12" height="10" rx="2" />
+                            <rect class="lego-segment" data-seg="Coxa Direita Posterior" x="30" y="98" width="18" height="30" rx="1" />
+                            <rect class="lego-segment" data-seg="Joelho Direito Posterior" x="30" y="128" width="18" height="8" rx="1" />
+                            <rect class="lego-segment" data-seg="Perna Direita Posterior" x="30" y="136" width="18" height="30" rx="1" />
+                            <rect class="lego-segment" data-seg="Pé Direito Posterior" x="25" y="168" width="23" height="10" rx="2" />
+                            <rect class="lego-segment" data-seg="Coxa Esquerda Posterior" x="52" y="98" width="18" height="30" rx="1" />
+                            <rect class="lego-segment" data-seg="Joelho Esquerda Posterior" x="52" y="128" width="18" height="8" rx="1" />
+                            <rect class="lego-segment" data-seg="Perna Esquerda Posterior" x="52" y="136" width="18" height="30" rx="1" />
+                            <rect class="lego-segment" data-seg="Pé Esquerdo Posterior" x="52" y="168" width="23" height="10" rx="2" />
+                        </svg>
+                    </div>
+                </div>
+                <div class="space-y-3">
+                    <h2 class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fichas de Lesão</h2>
+                    <div id="lesionList" class="space-y-2 max-h-[300px] overflow-y-auto pr-1"></div>
+                </div>
+            </aside>
+
+            <!-- Coluna Central: Workstation -->
+            <main class="xl:col-span-10 grid grid-cols-1 lg:grid-cols-12 gap-0 relative">
+                
+                <div id="analysisArea" class="lg:col-span-7 p-6 space-y-6 hidden">
+                    <div class="flex justify-between items-end border-b pb-4">
+                        <div>
+                            <span class="text-blue-600 font-black text-3xl tracking-tighter">#<span id="displayId">1</span></span>
+                            <h3 class="text-slate-800 font-bold text-base">Workstation Forense: <span id="segBadge" class="text-slate-400 uppercase text-[10px]"></span></h3>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="confirmAnalysis()" class="bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black px-3 py-2 rounded-xl shadow-lg transition uppercase">Confirmar Ficha</button>
+                            <button onclick="triggerDeleteCurrent()" class="text-red-500 text-[10px] font-bold hover:bg-red-50 px-3 py-2 rounded-xl transition uppercase">Remover</button>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-4">
+                        <div class="flex-1 space-y-4">
+                            <div class="canvas-wrapper shadow-2xl border-[4px] border-white min-h-[450px]">
+                                <canvas id="mainCanvas"></canvas>
+                                <div id="dropZone" class="absolute inset-0 flex flex-col items-center justify-center bg-slate-100/90 pointer-events-none">
+                                    <input type="file" id="fileIn" accept="image/*" class="hidden">
+                                    <button onclick="document.getElementById('fileIn').click()" class="pointer-events-auto bg-slate-900 text-white px-6 py-3 rounded-2xl font-black shadow-xl hover:bg-blue-600 transition uppercase text-[10px]">Vincular Foto</button>
+                                </div>
+                            </div>
+
+                            <div class="bg-white p-4 rounded-3xl border border-slate-200 shadow-sm">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span class="text-[9px] font-black text-slate-400 uppercase">Hemoglobina (Legrand)</span>
+                                    <div class="flex items-center gap-2 bg-slate-50 px-2 py-1 rounded-full border">
+                                        <input type="color" id="manualColorPicker" class="w-4 h-4 border-0 bg-transparent cursor-pointer">
+                                        <span id="hexValue" class="font-mono text-[9px] font-bold text-slate-600">#------</span>
+                                    </div>
+                                </div>
+                                <div class="legrand-slider" id="slider"><div id="sliderMarker"></div></div>
+                                <p id="colorFeedback" class="text-center mt-2 text-[10px] font-bold text-blue-600 uppercase tracking-tighter italic">Selecione na escala</p>
+                            </div>
+                        </div>
+                        <div class="vertical-ruler rounded-2xl" id="rightRuler"></div>
+                    </div>
+                </div>
+
+                <!-- Painel de Dados -->
+                <div id="dataArea" class="lg:col-span-5 bg-slate-50/50 border-l border-slate-100 p-6 space-y-4 hidden overflow-y-auto max-h-[85vh] no-print">
+                    
+                    <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 space-y-3">
+                        <h4 class="text-[10px] font-black text-blue-600 uppercase border-b pb-2">1. Caracterização Geral</h4>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="form-label">Sede (Localização Precisa)</label>
+                                <input type="text" id="fieldSede" class="form-input" placeholder="ex: Terço médio face anterior">
+                            </div>
+                            <div>
+                                <label class="form-label">Forma</label>
+                                <select id="fieldForma" class="form-input">
+                                    <option value="Irregular">Irregular</option>
+                                    <option value="Circular">Circular</option>
+                                    <option value="Linear">Linear</option>
+                                    <option value="Em faixa">Em faixa</option>
+                                    <option value="Digital">Digital</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2">
+                            <div class="bg-slate-900 text-white p-2 rounded-lg text-center">
+                                <span class="block text-[7px] opacity-50 uppercase tracking-widest">D. Maior</span>
+                                <span id="valMajor" class="font-mono font-black text-xs text-blue-400 tracking-tighter">0.00 cm</span>
+                            </div>
+                            <div class="bg-slate-900 text-white p-2 rounded-lg text-center">
+                                <span class="block text-[7px] opacity-50 uppercase tracking-widest">d. Menor</span>
+                                <span id="valMinor" class="font-mono font-black text-xs text-emerald-400 tracking-tighter">0.00 cm</span>
+                            </div>
+                            <button onclick="setInteractionMode('CALIB')" id="btnCalib" class="bg-amber-500 text-white text-[8px] font-bold rounded-lg uppercase">Calibrar [X]</button>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+                        <h4 class="text-[10px] font-black text-blue-600 uppercase border-b pb-2 mb-3">2. Natureza da Lesão</h4>
+                        <div class="grid grid-cols-2 gap-2">
+                            <label class="flex items-center gap-2 text-[11px]"><input type="radio" name="natureza" value="Equimose"> Equimose</label>
+                            <label class="flex items-center gap-2 text-[11px]"><input type="radio" name="natureza" value="Hematoma"> Hematoma</label>
+                            <label class="flex items-center gap-2 text-[11px]"><input type="radio" name="natureza" value="Erosão/Escoriação"> Escoriação</label>
+                            <label class="flex items-center gap-2 text-[11px]"><input type="radio" name="natureza" value="Ferida Contusa"> Ferida Contusa</label>
+                            <label class="flex items-center gap-2 text-[11px]"><input type="radio" name="natureza" value="Corte/Perfuração"> Corte/Perf.</label>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                            <h4 class="text-[10px] font-black text-blue-600 uppercase border-b pb-2 mb-2">4. Meio Agressor</h4>
+                            <select id="fieldInstrumento" class="form-input">
+                                <option value="Mecânica (Punhos/Pés)">Mecânica (Corpo)</option>
+                                <option value="Mecânica (Objeto Contundente)">Contundente</option>
+                                <option value="Mecânica (Projétil)">Projétil</option>
+                                <option value="Térmica">Térmica</option>
+                                <option value="Química">Química</option>
+                            </select>
+                        </div>
+                        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                            <h4 class="text-[10px] font-black text-blue-600 uppercase border-b pb-2 mb-2">5. Reação Vital</h4>
+                            <select id="fieldVital" class="form-input">
+                                <option value="Intra-vitam">Intra-vitam</option>
+                                <option value="Pós-morte">Pós-morte</option>
+                                <option value="Duvidosa">Duvidosa</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-900 text-white p-4 rounded-2xl shadow-xl space-y-4">
+                        <h4 class="text-[10px] font-black text-amber-400 uppercase border-b border-slate-700 pb-2">6. Gravidade (Art. 129 CP)</h4>
+                        <div class="space-y-2">
+                            <label class="flex items-center gap-3 text-[10px] font-bold uppercase tracking-tighter"><input type="checkbox" id="cp_perigo" class="w-4 h-4 rounded accent-blue-500"> Perigo de vida?</label>
+                            <label class="flex items-center gap-3 text-[10px] font-bold uppercase tracking-tighter"><input type="checkbox" id="cp_debilidade" class="w-4 h-4 rounded accent-blue-500"> Debilidade perm.?</label>
+                            <label class="flex items-center gap-3 text-[10px] font-bold uppercase tracking-tighter"><input type="checkbox" id="cp_trinta" class="w-4 h-4 rounded accent-blue-500"> Incap. > 30 dias?</label>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 gap-2">
+                        <button onclick="setInteractionMode('MAJOR')" class="w-full py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase shadow-lg">Eixo Maior [X]</button>
+                        <button onclick="setInteractionMode('MINOR')" class="w-full py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase shadow-lg">Eixo Menor [X]</button>
+                    </div>
+                </div>
+
+                <!-- Painel Inicial -->
+                <div id="emptyState" class="lg:col-span-12 flex flex-col items-center justify-center h-[650px] text-slate-300">
+                    <div class="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-4"><svg class="w-8 h-8 opacity-20" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11H9v2h2v2zm0-4H9V5h2v4z"/></svg></div>
+                    <p class="font-black text-xs uppercase tracking-[0.2em] text-slate-400 text-center">Clique no mapa para<br>iniciar o exame</p>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        let lesions = [];
+        let activeIdx = null;
+        let mode = 'IDLE'; 
+        let dragging = null;
+        let currentView = 'anterior';
+
+        const legrandScale = [
+            { limit: 0.15, name: 'Vermelho/Violáceo', time: '1 a 2 dias', hex: '#dc2626' },
+            { limit: 0.40, name: 'Azulado', time: '3 a 6 dias', hex: '#4f46e5' },
+            { limit: 0.65, name: 'Esverdeado', time: '7 a 10 dias', hex: '#16a34a' },
+            { limit: 0.85, name: 'Amarelado', time: '12 a 20 dias', hex: '#eab308' },
+            { limit: 1.00, name: 'Esmaecido', time: '+20 dias', hex: '#fefce8' }
+        ];
+
+        const canvas = document.getElementById('mainCanvas');
+        const ctx = canvas.getContext('2d');
+        const analysisArea = document.getElementById('analysisArea');
+        const dataArea = document.getElementById('dataArea');
+        const emptyState = document.getElementById('emptyState');
+        const slider = document.getElementById('slider');
+        const sliderMarker = document.getElementById('sliderMarker');
+        const modal = document.getElementById('customModal');
+        const modalConfirmBtn = document.getElementById('modalConfirmBtn');
+
+        // Modal System
+        function openModal(title, text, confirmFn) {
+            document.getElementById('modalTitle').innerText = title;
+            document.getElementById('modalText').innerText = text;
+            modalConfirmBtn.onclick = () => { confirmFn(); closeModal(); };
+            modal.style.display = 'flex';
+        }
+        function closeModal() { modal.style.display = 'none'; }
+
+        // Mapeamento de cliques
+        document.querySelectorAll('.lego-segment').forEach(seg => {
+            seg.addEventListener('click', (e) => {
+                const segName = seg.getAttribute('data-seg');
+                const svg = seg.closest('svg');
+                const rect = svg.getBoundingClientRect();
+                const x = ((e.clientX - rect.left) / rect.width) * 100;
+                const y = ((e.clientY - rect.top) / rect.height) * 210;
+
+                lesions.push({
+                    id: lesions.length + 1, x, y, view: currentView,
+                    image: null, segment: segName,
+                    points: {
+                        calib: [{x: 50, y: 50}, {x: 150, y: 50}],
+                        major: [{x: 100, y: 200}, {x: 400, y: 200}],
+                        minor: [{x: 250, y: 100}, {x: 250, y: 300}]
+                    },
+                    pxPerCm: 0, realSize: 1, colorName: "", timeEst: "", sliderPct: 0,
+                    manualColor: "#000000", sede: "", forma: "Irregular", natureza: "Equimose", instrumento: "Mecânica (Punhos/Pés)", vital: "Intra-vitam", cp_perigo: false, cp_debilidade: false, cp_trinta: false, confirmed: false
+                });
+                renderMarkers();
+                selectLesion(lesions.length - 1);
+            });
+        });
+
+        function switchView(view) {
+            currentView = view;
+            document.getElementById('legoManAnt').classList.toggle('hidden', view !== 'anterior');
+            document.getElementById('legoManPost').classList.toggle('hidden', view !== 'posterior');
+            document.getElementById('btnViewAnt').className = view === 'anterior' ? 'px-2 py-1 text-[8px] font-black rounded bg-blue-600 text-white' : 'px-2 py-1 text-[8px] font-black rounded bg-slate-200 text-slate-600';
+            document.getElementById('btnViewPost').className = view === 'posterior' ? 'px-2 py-1 text-[8px] font-black rounded bg-blue-600 text-white' : 'px-2 py-1 text-[8px] font-black rounded bg-slate-200 text-slate-600';
+            renderMarkers();
+        }
+
+        function updateSegmentStatus() {
+            const hasLesion = new Set(lesions.map(l => l.segment));
+            document.querySelectorAll('.lego-segment').forEach(s => {
+                const name = s.getAttribute('data-seg');
+                if (hasLesion.has(name)) s.classList.add('has-lesion');
+                else s.classList.remove('has-lesion');
+                
+                if (activeIdx !== null && lesions[activeIdx] && lesions[activeIdx].segment === name) s.classList.add('selected');
+                else s.classList.remove('selected');
+            });
+        }
+
+        function renderMarkers() {
+            document.querySelectorAll('.humanoid-marker').forEach(m => m.remove());
+            const list = document.getElementById('lesionList');
+            if (list) list.innerHTML = "";
+            const container = document.getElementById('mapContainer');
+
+            lesions.forEach((l, i) => {
+                if (l.view === currentView) {
+                    const m = document.createElement('div');
+                    m.className = `humanoid-marker ${i === activeIdx ? 'active' : ''}`;
+                    m.style.left = `${l.x}%`; m.style.top = `${l.y / 2.1}%`;
+                    m.innerText = l.id; m.onclick = () => selectLesion(i);
+                    if (container) container.appendChild(m);
+                }
+                if (list) {
+                    const item = document.createElement('div');
+                    item.className = `p-3 rounded-xl border-2 cursor-pointer transition-all ${i === activeIdx ? 'bg-blue-600 text-white border-blue-600 scale-105 shadow-md' : 'bg-white border-slate-100'}`;
+                    item.onclick = () => selectLesion(i);
+                    item.innerHTML = `<span class="font-black text-[10px]">#${l.id} - ${l.segment}</span> ${l.confirmed ? '✅' : ''}`;
+                    list.appendChild(item);
+                }
+            });
+            updateSegmentStatus();
+        }
+
+        function selectLesion(idx) {
+            if (idx === null || lesions[idx] === undefined) {
+                activeIdx = null;
+                if (emptyState) emptyState.classList.remove('hidden');
+                if (analysisArea) analysisArea.classList.add('hidden');
+                if (dataArea) dataArea.classList.add('hidden');
+                renderMarkers();
+                return;
+            }
+
+            activeIdx = idx; mode = 'IDLE';
+            const l = lesions[idx];
+            if (emptyState) emptyState.classList.add('hidden');
+            if (analysisArea) analysisArea.classList.remove('hidden');
+            if (dataArea) dataArea.classList.remove('hidden');
+            
+            const safeSetVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+            const safeSetChecked = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
+            const safeSetText = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
+
+            safeSetText('displayId', l.id);
+            safeSetText('segBadge', l.segment);
+            safeSetVal('realSize', l.realSize);
+            safeSetVal('fieldSede', l.sede || "");
+            safeSetVal('fieldForma', l.forma || "Irregular");
+            safeSetVal('fieldInstrumento', l.instrumento || "Mecânica (Punhos/Pés)");
+            safeSetVal('fieldVital', l.vital || "Intra-vitam");
+            document.querySelectorAll('input[name="natureza"]').forEach(r => r.checked = r.value === l.natureza);
+            safeSetChecked('cp_perigo', l.cp_perigo);
+            safeSetChecked('cp_debilidade', l.cp_debilidade);
+            safeSetChecked('cp_trinta', l.cp_trinta);
+
+            const hex = l.manualColor || "#000000";
+            safeSetVal('manualColorPicker', hex);
+            safeSetText('hexValue', hex.toUpperCase());
+            
+            if(l.sliderPct) {
+                if (sliderMarker) { sliderMarker.style.display = 'block'; sliderMarker.style.left = (l.sliderPct * 100) + '%'; }
+                const found = legrandScale.find(s => l.sliderPct <= s.limit);
+                if(found) safeSetText('colorFeedback', `${found.name} (${found.time})`);
+            } else {
+                if (sliderMarker) sliderMarker.style.display = 'none';
+                safeSetText('colorFeedback', "Selecione na escala");
+            }
+
+            renderMarkers();
+            if(l.image) {
+                document.getElementById('dropZone').classList.add('hidden');
+                canvas.width = l.image.width; canvas.height = l.image.height;
+                draw();
+            } else {
+                document.getElementById('dropZone').classList.remove('hidden');
+                ctx.clearRect(0,0, canvas.width, canvas.height);
+            }
+            updateRuler();
+        }
+
+        document.getElementById('fileIn').addEventListener('change', (e) => {
+            const f = e.target.files[0];
+            if (!f) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const img = new Image();
+                img.onload = () => {
+                    const l = lesions[activeIdx];
+                    if (!l) return;
+                    l.image = img;
+                    l.points.calib = [{x: img.width * 0.1, y: img.height * 0.1}, {x: img.width * 0.2, y: img.height * 0.1}];
+                    l.points.major = [{x: img.width * 0.3, y: img.height * 0.5}, {x: img.width * 0.7, y: img.height * 0.5}];
+                    l.points.minor = [{x: img.width * 0.5, y: img.height * 0.4}, {x: img.width * 0.5, y: img.height * 0.6}];
+                    selectLesion(activeIdx);
+                };
+                img.src = ev.target.result;
+            };
+            reader.readAsDataURL(f);
+        });
+
+        function setInteractionMode(m) { mode = m; draw(); }
+
+        function draw() {
+            const l = lesions[activeIdx];
+            if(!l || !l.image) return;
+            ctx.clearRect(0,0, canvas.width, canvas.height);
+            ctx.drawImage(l.image, 0, 0);
+
+            const cDist = Math.hypot(l.points.calib[1].x - l.points.calib[0].x, l.points.calib[1].y - l.points.calib[0].y);
+            const sizeVal = document.getElementById('realSize') ? parseFloat(document.getElementById('realSize').value) || 1 : 1;
+            l.pxPerCm = cDist / sizeVal;
+
+            renderLine(l.points.calib[0], l.points.calib[1], '#fbbf24', 'CALIB');
+            renderLine(l.points.major[0], l.points.major[1], '#2563eb', 'MAJOR');
+            renderLine(l.points.minor[0], l.points.minor[1], '#10b981', 'MINOR', true);
+
+            const majCm = Math.hypot(l.points.major[1].x - l.points.major[0].x, l.points.major[1].y - l.points.major[0].y) / l.pxPerCm;
+            const minCm = Math.hypot(l.points.minor[1].x - l.points.minor[0].x, l.points.minor[1].y - l.points.minor[0].y) / l.pxPerCm;
+            const majEl = document.getElementById('valMajor');
+            const minEl = document.getElementById('valMinor');
+            if (majEl) majEl.innerText = (isNaN(majCm) ? 0 : majCm).toFixed(2) + " cm";
+            if (minEl) minEl.innerText = (isNaN(minCm) ? 0 : minCm).toFixed(2) + " cm";
+        }
+
+        function renderLine(p1, p2, color, type, dash = false) {
+            ctx.beginPath(); ctx.strokeStyle = color;
+            ctx.lineWidth = type === mode || mode === 'IDLE' ? 6 : 2;
+            if(dash) ctx.setLineDash([15, 15]);
+            ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+            ctx.setLineDash([]);
+            drawX(p1.x, p1.y, color); drawX(p2.x, p2.y, color);
+        }
+
+        function drawX(x, y, color) {
+            const s = 12; ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 4;
+            ctx.strokeStyle = "white"; ctx.lineWidth = 5;
+            ctx.beginPath(); ctx.moveTo(x - s, y - s); ctx.lineTo(x + s, y + s); ctx.moveTo(x + s, y - s); ctx.lineTo(x - s, y + s); ctx.stroke();
+            ctx.strokeStyle = color; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.moveTo(x - s, y - s); ctx.lineTo(x + s, y + s); ctx.moveTo(x + s, y - s); ctx.lineTo(x - s, y + s); ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const sx = canvas.width / rect.width, sy = canvas.height / rect.height;
+            const mx = (e.clientX - rect.left) * sx, my = (e.clientY - rect.top) * sy;
+            const l = lesions[activeIdx]; if (!l) return;
+            let set = mode === 'CALIB' ? l.points.calib : mode === 'MAJOR' ? l.points.major : mode === 'MINOR' ? l.points.minor : [...l.points.calib, ...l.points.major, ...l.points.minor];
+            set.forEach(p => { if(Math.hypot(p.x - mx, p.y - my) < 50) dragging = p; });
+        });
+        canvas.addEventListener('mousemove', (e) => {
+            if(!dragging) return;
+            const rect = canvas.getBoundingClientRect();
+            dragging.x = (e.clientX - rect.left) * (canvas.width / rect.width);
+            dragging.y = (e.clientY - rect.top) * (canvas.height / rect.height);
+            draw();
+        });
+        canvas.addEventListener('mouseup', () => dragging = null);
+
+        if (slider) {
+            slider.addEventListener('click', (e) => {
+                const rect = slider.getBoundingClientRect();
+                const pct = (e.clientX - rect.left) / rect.width;
+                const found = legrandScale.find(s => pct <= s.limit);
+                if(found && activeIdx !== null) {
+                    const l = lesions[activeIdx];
+                    l.colorName = found.name; l.timeEst = found.time; l.sliderPct = pct; l.manualColor = found.hex;
+                    if (sliderMarker) { sliderMarker.style.display = 'block'; sliderMarker.style.left = (pct * 100) + '%'; }
+                    const feedbackEl = document.getElementById('colorFeedback');
+                    const pickerEl = document.getElementById('manualColorPicker');
+                    const hexEl = document.getElementById('hexValue');
+                    if (feedbackEl) feedbackEl.innerText = `${found.name} (${found.time})`;
+                    if (pickerEl) pickerEl.value = found.hex;
+                    if (hexEl) hexEl.innerText = found.hex.toUpperCase();
+                }
+            });
+        }
+
+        // Listeners
+        ['fieldSede', 'fieldForma', 'fieldInstrumento', 'fieldVital'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', (e) => { if (activeIdx !== null && lesions[activeIdx]) lesions[activeIdx][id.replace('field', '').toLowerCase()] = e.target.value; });
+        });
+        document.querySelectorAll('input[name="natureza"]').forEach(r => {
+            r.addEventListener('change', (e) => { if (activeIdx !== null && lesions[activeIdx]) lesions[activeIdx].natureza = e.target.value; });
+        });
+        ['cp_perigo', 'cp_debilidade', 'cp_trinta'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', (e) => { if (activeIdx !== null && lesions[activeIdx]) lesions[activeIdx][id] = e.target.checked; });
+        });
+
+        const manualPicker = document.getElementById('manualColorPicker');
+        if (manualPicker) {
+            manualPicker.addEventListener('input', (e) => {
+                const val = e.target.value;
+                const hexEl = document.getElementById('hexValue');
+                if (hexEl) hexEl.innerText = val.toUpperCase();
+                if(activeIdx !== null && lesions[activeIdx]) lesions[activeIdx].manualColor = val;
+            });
+        }
+
+        function confirmAnalysis() { if(activeIdx !== null) { lesions[activeIdx].confirmed = true; renderMarkers(); alert("Ficha confirmada!"); } }
+
+        function copyAllNotes() {
+            let out = "PRONTUÁRIO TRAUMATO-FORENSE - CENTRAL DE PERÍCIAS\n\n";
+            lesions.forEach(l => {
+                out += `LESÃO #${l.id} (${l.segment})\nSEDE: ${l.sede || '---'}\nCRONOLOGIA: ${l.timeEst}\n------------------\n`;
+            });
+            const dummy = document.createElement("textarea"); document.body.appendChild(dummy);
+            dummy.value = out; dummy.select(); document.execCommand("copy");
+            document.body.removeChild(dummy); alert("Prontuário copiado!");
+        }
+
+        function generateLatex() {
+            let tex = "\\documentclass{article}\n\\begin{document}\n\\section*{Relatório Pericial}\n";
+            lesions.forEach(l => { tex += `\\subsection*{Lesão \\#${l.id}: ${l.segment}}\nSede: ${l.sede}\n`; });
+            tex += "\\end{document}";
+            const dummy = document.createElement("textarea"); document.body.appendChild(dummy);
+            dummy.value = tex; dummy.select(); document.execCommand("copy");
+            document.body.removeChild(dummy); alert("LaTeX copiado!");
+        }
+
+        function updateRuler() {
+            const r = document.getElementById('rightRuler'); if (!r) return;
+            r.innerHTML = "";
+            for(let i = 0; i <= 20; i++) {
+                const t = document.createElement('div');
+                t.className = "flex items-center justify-end pr-2 h-full border-b border-slate-200";
+                t.innerHTML = `<span>${i}cm</span>`; r.appendChild(t);
+            }
+        }
+
+        // Deletion Triggers
+        function triggerClearAll() {
+            openModal("Apagar Tudo", "Deseja realmente apagar todas as lesões registradas neste exame?", () => {
+                lesions = []; activeIdx = null; selectLesion(null); renderMarkers(); switchView('anterior');
+            });
+        }
+        function triggerDeleteCurrent() {
+            if (activeIdx === null) return;
+            openModal("Remover Lesão", `Deseja excluir permanentemente a Ficha da Lesão #${lesions[activeIdx].id}?`, () => {
+                lesions.splice(activeIdx, 1);
+                activeIdx = null;
+                selectLesion(null);
+                renderMarkers();
+            });
+        }
+        
+        const rsInput = document.getElementById('realSize');
+        if (rsInput) rsInput.addEventListener('input', () => { if(activeIdx !== null) draw(); });
+    </script>
+</body>
+</html>
